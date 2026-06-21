@@ -23,12 +23,12 @@ def on_startup() -> None:
     create_db_and_tables()
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health_check():
     return {"status": "ok"}
 
 
-app.include_router(people_router)
-app.include_router(expenses_router)
-app.include_router(balances_router)
-app.include_router(currency_router)
+app.include_router(people_router, prefix="/api")
+app.include_router(expenses_router, prefix="/api")
+app.include_router(balances_router, prefix="/api")
+app.include_router(currency_router, prefix="/api")
