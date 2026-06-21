@@ -221,13 +221,5 @@ sudo systemctl start whelsplit
 sudo systemctl status whelsplit
 ```
 
-Disable service:
-
-```bash
-sudo systemctl stop whelsplit
-sudo systemctl disable whelsplit
-sudo systemctl status whelsplit
-```
-
 ## Notes
 
