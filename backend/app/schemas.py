@@ -1,8 +1,8 @@
-from datetime import date, datetime
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 CurrencyCode = Literal["USD", "CAD", "JPY"]
 SplitType = Literal["equal", "manual"]
@@ -39,13 +39,37 @@ class ExpenseCreate(BaseModel):
     amount: Decimal = Field(gt=0)
     currency: CurrencyCode
     payer_id: int
-    expense_date: Optional[date] = None
+    expense_date: Optional[datetime] = None
     split_type: SplitType = "equal"
     participants: list[ExpenseParticipantInput] = []
     splits: list[ExpenseSplitInput] = []
 
+    @field_validator("expense_date", mode="before")
+    @classmethod
+    def parse_expense_date(cls, value: object) -> object:
+        if value is None or isinstance(value, datetime):
+            return value
+
+        if isinstance(value, date):
+            return datetime.combine(value, time.min, tzinfo=timezone.utc)
+
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                parsed_date = date.fromisoformat(value)
+                return datetime.combine(parsed_date, time.min, tzinfo=timezone.utc)
+
+        return value
+
     @model_validator(mode="after")
     def validate_split_payload(self) -> "ExpenseCreate":
+        if self.expense_date is not None:
+            if self.expense_date.tzinfo is None:
+                self.expense_date = self.expense_date.replace(tzinfo=timezone.utc)
+            else:
+                self.expense_date = self.expense_date.astimezone(timezone.utc)
+
         if self.split_type == "equal" and not self.participants:
             raise ValueError("participants are required for equal split")
 
@@ -76,8 +100,11 @@ class ExpenseRead(BaseModel):
     description: str
     amount: float
     currency: CurrencyCode
+    exchange_rate_to_usd: Optional[float] = None
+    exchange_rate_to_cad: Optional[float] = None
+    exchange_rate_to_jpy: Optional[float] = None
     payer_id: int
-    expense_date: date
+    expense_date: datetime
     created_at: datetime
     splits: list[ExpenseSplitRead]
 

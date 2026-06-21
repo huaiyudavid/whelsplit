@@ -20,6 +20,9 @@ export interface Expense {
   description: string;
   amount: number;
   currency: CurrencyCode;
+  exchange_rate_to_usd?: number | null;
+  exchange_rate_to_cad?: number | null;
+  exchange_rate_to_jpy?: number | null;
   payer_id: number;
   expense_date: string;
   created_at: string;

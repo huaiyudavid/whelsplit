@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { CurrencyCode, ExpenseCreatePayload, Person } from "../types";
 
+const roundCurrencyAmount = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
 export function AddExpensePage() {
   const navigate = useNavigate();
 
@@ -15,6 +17,7 @@ export function AddExpensePage() {
   const [selectedParticipants, setSelectedParticipants] = useState<number[]>([]);
   const [splitType, setSplitType] = useState<"equal" | "manual">("equal");
   const [manualSplits, setManualSplits] = useState<Record<number, string>>({});
+  const [manualTaxRate, setManualTaxRate] = useState("0");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -34,6 +37,9 @@ export function AddExpensePage() {
   const participantOptions = useMemo(() => {
     return people.filter((person) => person.id !== payerId);
   }, [people, payerId]);
+
+  const parsedManualTaxRate = splitType === "manual" ? Number(manualTaxRate || 0) : 0;
+  const manualTaxMultiplier = 1 + parsedManualTaxRate / 100;
 
   const toggleParticipant = (personId: number) => {
     setSelectedParticipants((current) =>
@@ -67,9 +73,30 @@ export function AddExpensePage() {
     if (splitType === "equal") {
       payload.participants = selectedParticipants.map((person_id) => ({ person_id }));
     } else {
-      payload.splits = selectedParticipants.map((person_id) => ({
+      if (!Number.isFinite(parsedManualTaxRate) || parsedManualTaxRate < 0) {
+        setError("Tax rate must be 0 or greater.");
+        return;
+      }
+
+      const rawSplits = selectedParticipants.map((person_id) => ({
         person_id,
         amount: Number(manualSplits[person_id] || 0),
+      }));
+
+      if (rawSplits.some((split) => !Number.isFinite(split.amount) || split.amount <= 0)) {
+        setError("Enter an amount owed greater than 0 for each selected participant.");
+        return;
+      }
+
+      const manualSplitTotal = rawSplits.reduce((total, split) => total + split.amount, 0);
+      if (manualSplitTotal > parsedAmount) {
+        setError("Manual splits cannot exceed the expense amount before tax.");
+        return;
+      }
+
+      payload.splits = rawSplits.map((split) => ({
+        person_id: split.person_id,
+        amount: roundCurrencyAmount(split.amount * manualTaxMultiplier),
       }));
     }
 
@@ -130,6 +157,22 @@ export function AddExpensePage() {
           </label>
         </div>
 
+        {splitType === "manual" && (
+          <label className="block space-y-1">
+            <span className="text-sm font-semibold text-brand-800 dark:text-brand-200">Tax rate (%)</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={manualTaxRate}
+              onChange={(event) => setManualTaxRate(event.target.value)}
+              className="h-12 w-full rounded-xl border border-brand-200 bg-white px-3 text-brand-900 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100"
+              placeholder="0"
+            />
+            <p className="text-xs text-brand-600 dark:text-brand-300">Tax is applied to each person&apos;s split only. The total expense amount is assumed to already include tax.</p>
+          </label>
+        )}
+
         <label className="block space-y-1">
           <span className="text-sm font-semibold text-brand-800 dark:text-brand-200">Paid by</span>
           <select
@@ -184,20 +227,27 @@ export function AddExpensePage() {
                     <span className="font-semibold text-brand-900 dark:text-brand-100">{person.name}</span>
                   </label>
                   {splitType === "manual" && checked && (
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={manualSplits[person.id] || ""}
-                      onChange={(event) =>
-                        setManualSplits((current) => ({
-                          ...current,
-                          [person.id]: event.target.value,
-                        }))
-                      }
-                      className="mt-2 h-11 w-full rounded-lg border border-brand-200 bg-white px-3 text-brand-900 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100"
-                      placeholder="Amount owed"
-                    />
+                    <div className="mt-2 space-y-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={manualSplits[person.id] || ""}
+                        onChange={(event) =>
+                          setManualSplits((current) => ({
+                            ...current,
+                            [person.id]: event.target.value,
+                          }))
+                        }
+                        className="h-11 w-full rounded-lg border border-brand-200 bg-white px-3 text-brand-900 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100"
+                        placeholder="Amount owed before tax"
+                      />
+                      {manualSplits[person.id] && Number(manualSplits[person.id]) > 0 && Number.isFinite(parsedManualTaxRate) && (
+                        <p className="text-xs text-brand-600 dark:text-brand-300">
+                          With tax: {roundCurrencyAmount(Number(manualSplits[person.id]) * manualTaxMultiplier).toFixed(2)} {currency}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               );

@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api/client";
-import { formatCurrency } from "../api/currency";
+import { convertWithExpenseSnapshot, formatCurrency } from "../api/currency";
 import type { CurrencyCode, Expense, Person } from "../types";
+import { formatExpenseDate, formatExpenseDateTime } from "../utils/dates";
 
 interface ExpenseDetailsPageProps {
   displayCurrency: CurrencyCode;
@@ -45,7 +46,7 @@ export function ExpenseDetailsPage({ displayCurrency }: ExpenseDetailsPageProps)
   }, [expenseId]);
 
   useEffect(() => {
-    const convert = async () => {
+    const convert = () => {
       if (!expense) {
         setConvertedAmount(null);
         setConvertedSplits({});
@@ -54,21 +55,12 @@ export function ExpenseDetailsPage({ displayCurrency }: ExpenseDetailsPageProps)
 
       try {
         setIsConverting(true);
-
-        if (expense.currency === displayCurrency) {
-          setConvertedAmount(expense.amount);
-          setConvertedSplits(Object.fromEntries(expense.splits.map((split) => [split.id, split.amount_owed])));
-          return;
-        }
-
-        const [expenseConversion, ...splitConversions] = await Promise.all([
-          api.convertCurrency(expense.amount, expense.currency, displayCurrency),
-          ...expense.splits.map((split) => api.convertCurrency(split.amount_owed, split.currency, displayCurrency)),
-        ]);
-
-        setConvertedAmount(expenseConversion.converted_amount);
+        const expenseConvertedAmount = convertWithExpenseSnapshot(expense.amount, expense, displayCurrency);
+        setConvertedAmount(expenseConvertedAmount);
         setConvertedSplits(
-          Object.fromEntries(expense.splits.map((split, index) => [split.id, splitConversions[index].converted_amount])),
+          Object.fromEntries(
+            expense.splits.map((split) => [split.id, convertWithExpenseSnapshot(split.amount_owed, expense, displayCurrency)]),
+          ),
         );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to convert currency");
@@ -121,7 +113,7 @@ export function ExpenseDetailsPage({ displayCurrency }: ExpenseDetailsPageProps)
       <article className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm dark:border-brand-700 dark:bg-brand-900/70 dark:shadow-black/20">
         <header className="space-y-1">
           <h1 className="text-2xl font-extrabold text-brand-900 dark:text-brand-100">{expense.description}</h1>
-          <p className="text-xs text-brand-600 dark:text-brand-300">{new Date(expense.expense_date).toLocaleDateString()}</p>
+          <p title={formatExpenseDateTime(expense.expense_date)} className="text-xs text-brand-600 dark:text-brand-300">{formatExpenseDate(expense.expense_date)}</p>
           <p className="rounded-full bg-brand-100 px-3 py-1 text-xs font-bold text-brand-800 inline-block dark:bg-brand-700/70 dark:text-brand-100">
             Paid by {peopleMap.get(expense.payer_id) || `#${expense.payer_id}`}
           </p>

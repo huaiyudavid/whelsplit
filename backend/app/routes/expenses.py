@@ -1,13 +1,12 @@
-from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.database import get_session
-from app.models import Expense, ExpenseSplit, Person
+from app.models import Expense, ExpenseSplit, Person, utc_now
 from app.schemas import ExpenseCreate, ExpenseRead, ExpenseSplitRead, ExpenseUpdate
-from app.services.currency import CurrencyError, validate_currency
+from app.services.currency import CurrencyError, get_exchange_rate_snapshot, validate_currency
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
@@ -82,6 +81,9 @@ def _to_expense_read(expense: Expense, splits: list[ExpenseSplit]) -> ExpenseRea
         description=expense.description,
         amount=expense.amount,
         currency=expense.currency,
+        exchange_rate_to_usd=expense.exchange_rate_to_usd,
+        exchange_rate_to_cad=expense.exchange_rate_to_cad,
+        exchange_rate_to_jpy=expense.exchange_rate_to_jpy,
         payer_id=expense.payer_id,
         expense_date=expense.expense_date,
         created_at=expense.created_at,
@@ -100,9 +102,15 @@ def _to_expense_read(expense: Expense, splits: list[ExpenseSplit]) -> ExpenseRea
 
 @router.get("", response_model=list[ExpenseRead])
 def list_expenses(session: Session = Depends(get_session)):
-    expenses = session.exec(select(Expense).order_by(Expense.expense_date.desc(), Expense.created_at.desc())).all()
+    expenses = session.exec(
+        select(Expense).order_by(col(Expense.expense_date).desc(), col(Expense.created_at).desc())
+    ).all()
     expense_ids = [expense.id for expense in expenses if expense.id is not None]
-    splits = session.exec(select(ExpenseSplit).where(ExpenseSplit.expense_id.in_(expense_ids))).all() if expense_ids else []
+    splits = (
+        session.exec(select(ExpenseSplit).where(col(ExpenseSplit.expense_id).in_(expense_ids))).all()
+        if expense_ids
+        else []
+    )
 
     split_map: dict[int, list[ExpenseSplit]] = {expense_id: [] for expense_id in expense_ids}
     for split in splits:
@@ -115,6 +123,7 @@ def list_expenses(session: Session = Depends(get_session)):
 def create_expense(payload: ExpenseCreate, session: Session = Depends(get_session)):
     try:
         currency = validate_currency(payload.currency)
+        rate_snapshot = get_exchange_rate_snapshot(currency)
     except CurrencyError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -122,8 +131,11 @@ def create_expense(payload: ExpenseCreate, session: Session = Depends(get_sessio
         description=payload.description.strip(),
         amount=float(payload.amount),
         currency=currency,
+        exchange_rate_to_usd=float(rate_snapshot["USD"]),
+        exchange_rate_to_cad=float(rate_snapshot["CAD"]),
+        exchange_rate_to_jpy=float(rate_snapshot["JPY"]),
         payer_id=payload.payer_id,
-        expense_date=payload.expense_date or date.today(),
+        expense_date=payload.expense_date or utc_now(),
     )
 
     session.add(expense)
@@ -158,6 +170,22 @@ def update_expense(expense_id: int, payload: ExpenseUpdate, session: Session = D
         currency = validate_currency(payload.currency)
     except CurrencyError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    should_refresh_rate_snapshot = (
+        expense.currency != currency
+        or expense.exchange_rate_to_usd is None
+        or expense.exchange_rate_to_cad is None
+        or expense.exchange_rate_to_jpy is None
+    )
+
+    if should_refresh_rate_snapshot:
+        try:
+            rate_snapshot = get_exchange_rate_snapshot(currency)
+        except CurrencyError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        expense.exchange_rate_to_usd = float(rate_snapshot["USD"])
+        expense.exchange_rate_to_cad = float(rate_snapshot["CAD"])
+        expense.exchange_rate_to_jpy = float(rate_snapshot["JPY"])
 
     expense.description = payload.description.strip()
     expense.amount = float(payload.amount)

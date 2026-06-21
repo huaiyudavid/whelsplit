@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "../api/client";
-import { formatCurrency } from "../api/currency";
+import { convertWithExpenseSnapshot, formatCurrency } from "../api/currency";
 import type { CurrencyCode, Expense, Person } from "../types";
+import { formatExpenseDate, formatExpenseDateTime } from "../utils/dates";
 
 interface ExpensesPageProps {
   displayCurrency: CurrencyCode;
@@ -34,7 +35,7 @@ export function ExpensesPage({ displayCurrency }: ExpensesPageProps) {
   }, []);
 
   useEffect(() => {
-    const convertExpenses = async () => {
+    const convertExpenses = () => {
       if (expenses.length === 0) {
         setConvertedAmounts({});
         return;
@@ -42,16 +43,10 @@ export function ExpensesPage({ displayCurrency }: ExpensesPageProps) {
 
       try {
         setIsConverting(true);
-        const convertedEntries = await Promise.all(
-          expenses.map(async (expense) => {
-            if (expense.currency === displayCurrency) {
-              return [expense.id, expense.amount] as const;
-            }
-
-            const conversion = await api.convertCurrency(expense.amount, expense.currency, displayCurrency);
-            return [expense.id, conversion.converted_amount] as const;
-          }),
-        );
+        const convertedEntries = expenses.map((expense) => [
+          expense.id,
+          convertWithExpenseSnapshot(expense.amount, expense, displayCurrency),
+        ] as const);
         setConvertedAmounts(Object.fromEntries(convertedEntries));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to convert currency");
@@ -118,7 +113,7 @@ export function ExpensesPage({ displayCurrency }: ExpensesPageProps) {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-bold text-brand-900 dark:text-brand-100">{expense.description}</h2>
-                  <p className="text-xs text-brand-600 dark:text-brand-300">{new Date(expense.expense_date).toLocaleDateString()}</p>
+                  <p title={formatExpenseDateTime(expense.expense_date)} className="text-xs text-brand-600 dark:text-brand-300">{formatExpenseDate(expense.expense_date)}</p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <p className="rounded-full bg-brand-100 px-3 py-1 text-xs font-bold text-brand-800 dark:bg-brand-700/70 dark:text-brand-100">Paid by {peopleMap.get(expense.payer_id) || `#${expense.payer_id}`}</p>

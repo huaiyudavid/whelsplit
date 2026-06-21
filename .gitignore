@@ -46,6 +46,7 @@ backend/*.egg-info/
 # Frontend (Node / Vite)
 frontend/node_modules/
 frontend/dist/
+frontend/dev-dist/
 frontend/.vite/
 frontend/.cache/
 frontend/coverage/
@@ -53,6 +54,7 @@ frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
 frontend/pnpm-debug.log*
+*.tsbuildinfo
 
 # General build/cache artifacts
 build/
