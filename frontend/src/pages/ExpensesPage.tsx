@@ -8,9 +8,11 @@ import { formatExpenseDate, formatExpenseDateTime } from "../utils/dates";
 
 interface ExpensesPageProps {
   displayCurrency: CurrencyCode;
+  descriptionFilter: string;
+  payerFilter: number | null;
 }
 
-export function ExpensesPage({ displayCurrency }: ExpensesPageProps) {
+export function ExpensesPage({ displayCurrency, descriptionFilter, payerFilter }: ExpensesPageProps) {
   const navigate = useNavigate();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
@@ -81,6 +83,17 @@ export function ExpensesPage({ displayCurrency }: ExpensesPageProps) {
   };
 
   const peopleMap = useMemo(() => new Map(people.map((person) => [person.id, person.name])), [people]);
+  const normalizedDescriptionFilter = descriptionFilter.trim().toLowerCase();
+
+  const filteredExpenses = useMemo(
+    () => expenses.filter((expense) => {
+      const matchesDescription =
+        normalizedDescriptionFilter.length === 0 || expense.description.toLowerCase().includes(normalizedDescriptionFilter);
+      const matchesPayer = payerFilter === null || expense.payer_id === payerFilter;
+      return matchesDescription && matchesPayer;
+    }),
+    [expenses, normalizedDescriptionFilter, payerFilter],
+  );
 
   return (
     <section className="space-y-4">
@@ -93,7 +106,7 @@ export function ExpensesPage({ displayCurrency }: ExpensesPageProps) {
       {isConverting && <p className="rounded-xl bg-white p-4 text-sm text-brand-700 dark:bg-brand-900/70 dark:text-brand-200">Converting amounts...</p>}
 
       <div className="space-y-3">
-        {expenses.map((expense) => {
+        {filteredExpenses.map((expense) => {
           const converted = convertedAmounts[expense.id] ?? expense.amount;
           const isDeleting = deletingExpenseId === expense.id;
           return (
@@ -142,6 +155,12 @@ export function ExpensesPage({ displayCurrency }: ExpensesPageProps) {
             </article>
           );
         })}
+
+        {filteredExpenses.length === 0 && (
+          <p className="rounded-xl bg-white p-4 text-sm text-brand-700 dark:bg-brand-900/70 dark:text-brand-200">
+            {expenses.length === 0 ? "No expenses yet." : "No expenses match the current filters."}
+          </p>
+        )}
       </div>
     </section>
   );
